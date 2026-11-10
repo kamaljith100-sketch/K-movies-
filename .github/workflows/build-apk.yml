@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -17,27 +17,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Import Android source
-        id: import
+      - name: Extract Android source
         run: |
-          ZIP=$(find . -maxdepth 1 -name '*.zip' -print -quit)
-          if [ -n "$ZIP" ]; then
-            mkdir -p /tmp/source
-            unzip -q "$ZIP" -d /tmp/source
-            ROOT=$(find /tmp/source -name settings.gradle.kts -print -quit | xargs dirname)
-            test -n "$ROOT"
-            rsync -a --exclude='.git' "$ROOT/" ./
-            rm -f "$ZIP"
-            rm -rf app/src/main/java/com/ktele/player/.github
-            sed -i 's/android:label="[^"]*"/android:label="K-movies"/' app/src/main/AndroidManifest.xml
-            sed -i 's/rootProject.name = .*/rootProject.name = "K-movies"/' settings.gradle.kts
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "Import K-movies source"
-            git push
+          ZIP=$(find . -type f -iname '*.zip' -not -path './.git/*' -print -quit)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: Repository-ൽ ZIP ഫയൽ കണ്ടെത്തിയില്ല."
+            exit 1
           fi
-          test -f app/build.gradle.kts
+
+          mkdir -p /tmp/kmovies-source
+          unzip -q "$ZIP" -d /tmp/kmovies-source
+
+          ROOT=$(find /tmp/kmovies-source -name settings.gradle.kts -print -quit | xargs dirname)
+
+          if [ -z "$ROOT" ] || [ ! -f "$ROOT/app/build.gradle.kts" ]; then
+            echo "ERROR: Android project കണ്ടെത്തിയില്ല."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -51,11 +50,12 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build APK
-        run: gradle assembleDebug
+        run: gradle -p "$PROJECT_DIR" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: K-movies-APK
-          path: app/build/outputs/apk/debug/*.apk
-
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          
