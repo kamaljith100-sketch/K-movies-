@@ -1,1 +1,61 @@
 
+name: Build K-movies APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Import Android source
+        id: import
+        run: |
+          ZIP=$(find . -maxdepth 1 -name '*.zip' -print -quit)
+          if [ -n "$ZIP" ]; then
+            mkdir -p /tmp/source
+            unzip -q "$ZIP" -d /tmp/source
+            ROOT=$(find /tmp/source -name settings.gradle.kts -print -quit | xargs dirname)
+            test -n "$ROOT"
+            rsync -a --exclude='.git' "$ROOT/" ./
+            rm -f "$ZIP"
+            rm -rf app/src/main/java/com/ktele/player/.github
+            sed -i 's/android:label="[^"]*"/android:label="K-movies"/' app/src/main/AndroidManifest.xml
+            sed -i 's/rootProject.name = .*/rootProject.name = "K-movies"/' settings.gradle.kts
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Import K-movies source"
+            git push
+          fi
+          test -f app/build.gradle.kts
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: K-movies-APK
+          path: app/build/outputs/apk/debug/*.apk
+
